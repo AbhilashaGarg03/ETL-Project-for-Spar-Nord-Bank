@@ -1,0 +1,213 @@
+create schema spar_nord_atm_trans;
+
+create table spar_nord_atm_trans.DIM_LOCATION
+(location_id integer not null primary key, 
+location varchar(50), 
+streetname varchar(255), 
+street_number integer, 
+zipcode integer, 
+lat decimal(10,3), 
+lon decimal(10,3));
+            
+create table spar_nord_atm_trans.DIM_ATM
+(atm_id integer not null primary key, 
+ atm_number varchar(20), 
+ atm_manufacturer varchar(50), 
+ atm_location_id integer not null, 
+ foreign key(atm_location_id) references spar_nord_atm_trans.DIM_LOCATION(location_id));
+
+create table spar_nord_atm_trans.DIM_DATE
+(date_id integer not null primary key, 
+ full_date_time timestamp, 
+ year integer, 
+ month varchar(20), 
+ day integer, 
+ hour integer, 
+ weekday varchar(20));
+ 
+create table spar_nord_atm_trans.DIM_CARD_TYPE
+(card_type_id integer not null primary key, 
+ card_type varchar(23));
+ 
+create table spar_nord_atm_trans.FACT_ATM_TRANS
+(trans_id BIGINT not null primary key, 
+ atm_id integer not null, 
+ weather_loc_id integer not null, 
+ date_id integer not null, 
+ card_type_id integer not null, 
+ atm_status VARCHAR(20), 
+ currency VARCHAR(10), 
+ service VARCHAR(20), 
+ transaction_amount integer, 
+ message_code VARCHAR(255), 
+ message_text VARCHAR(255), 
+ rain_3h DECIMAL(10,5), 
+ clouds_all integer, 
+ weather_id integer, 
+ weather_main VARCHAR(50), 
+ weather_description VARCHAR(255), 
+ foreign key(atm_id) references spar_nord_atm_trans.DIM_ATM(atm_id), 
+ foreign key(date_id) references spar_nord_atm_trans.DIM_DATE(date_id), 
+ foreign key(card_type_id) references spar_nord_atm_trans.DIM_CARD_TYPE(card_type_id), 
+ foreign key(weather_loc_id) references spar_nord_atm_trans.DIM_LOCATION(location_id));
+ 
+create table spar_nord_atm_trans.FACT_ATM_TRANS
+(trans_id bigint not null DISTKEY SORTKEY,
+atm_id int,
+weather_loc_id int,
+date_id int,
+card_type_id int,
+atm_status varchar(20),
+currency varchar(10),
+service varchar(20),
+transaction_amount int,
+message_code varchar(225),
+message_text varchar(225),
+rain_3h decimal(10,3),
+clouds_all int,
+weather_id int,
+weather_main varchar(50),
+weather_description varchar(255),
+PRIMARY KEY(trans_id),
+FOREIGN KEY(weather_loc_id) references spar_nord_atm_trans.DIM_LOCATION(location_id),
+FOREIGN KEY(atm_id) references spar_nord_atm_trans.DIM_ATM(atm_id),
+FOREIGN KEY(date_id) references spar_nord_atm_trans.DIM_DATE(date_id),
+FOREIGN KEY(card_type_id) references spar_nord_atm_trans.DIM_CARD_TYPE(card_type_id)
+
+create table etl.spar_nord_atm_trans.FACT_ATM_TRANS
+(trans_id bigint not null DISTKEY SORTKEY,
+atm_id int,
+weather_loc_id int,
+date_id int,
+card_type_id int,
+atm_status varchar(20),
+currency varchar(10),
+service varchar(20),
+transaction_amount int,
+message_code varchar(225),
+message_text varchar(225),
+rain_3h decimal(10,3),
+clouds_all int,
+weather_id int,
+weather_main varchar(50),
+weather_description varchar(255),
+PRIMARY KEY(trans_id),
+FOREIGN KEY(weather_loc_id) references spar_nord_atm_trans.DIM_LOCATION(location_id),
+FOREIGN KEY(atm_id) references spar_nord_atm_trans.DIM_ATM(atm_id),
+FOREIGN KEY(date_id) references spar_nord_atm_trans.DIM_DATE(date_id),
+FOREIGN KEY(card_type_id) references spar_nord_atm_trans.DIM_CARD_TYPE(card_type_id));
+ 
+copy spar_nord_atm_trans.DIM_LOCATION from 's3://s3etlbucket/dim_location/part-00000-4083086e-aae6-44e1-833d-88b52c5f5f0d-c000.csv' iam_role 'arn:aws:iam::536330618235:role/s3fullredshiftrole' delimiter ',' region 'us-east-1';
+ 
+copy spar_nord_atm_trans.DIM_ATM from 's3://s3etlbucket/dim_atm/part-00000-f38f2738-f84e-4581-af21-6eaebeedef11-c000.csv' iam_role 'arn:aws:iam::536330618235:role/s3fullredshiftrole' delimiter ',' region 'us-east-1';
+ 
+copy spar_nord_atm_trans.DIM_DATE from 's3://s3etlbucket/dim_date/part-00000-ace51bd0-f726-40e3-9a8f-3c9bfe6066de-c000.csv' iam_role 'arn:aws:iam::536330618235:role/s3fullredshiftrole' delimiter ',' region 'us-east-1' TIMEFORMAT 'auto';
+ 
+copy spar_nord_atm_trans.DIM_CARD_TYPE from 's3://s3etlbucket/dim_card_type/part-00000-e7170186-2eb6-4b2d-a1f0-f23527062a3b-c000.csv' iam_role 'arn:aws:iam::536330618235:role/s3fullredshiftrole' delimiter ',' region 'us-east-1';
+                                                                       
+copy spar_nord_atm_trans.FACT_ATM_TRANS from 's3://s3etlbucket/fact_atm_trans/part-00000-6d0fcdcf-adb2-4e08-bfd6-e24254fc7d11-c000.csv' iam_role 'arn:aws:iam::536330618235:role/s3fullredshiftrole' delimiter ',' region 'us-east-1' CSV;
+
+/* Top 10 ATMs where most transactions are in the ’inactive’ state */
+select a.atm_number, a.atm_manufacturer, l.location,
+count(trans_id) as total_transaction_count,
+sum(case when atm_status = 'Inactive' then 1 else 0 end) as
+inactive_count,
+(inactive_count/total_transaction_count)*100 as count_percent
+from spar_nord_atm_trans.fact_atm_trans f, spar_nord_atm_trans.dim_atm a, spar_nord_atm_trans.dim_location l
+where f.atm_id = a.atm_id and a.atm_location_id = l.location_id
+group by a.atm_number, a.atm_manufacturer, l.location
+having count_percent > 50
+order by inactive_count desc
+limit 10;
+                                                                       
+/* Number of ATM failures corresponding to the different weather conditions recorded at the time of the transactions */ 
+select f.weather_main,
+count(trans_id) as total_transaction_count,
+sum(case when atm_status = 'Inactive' then 1 else 0 end) as inactive_count,
+case when coalesce(inactive_count, 0) = 0 then 0.0000
+else trunc((cast(inactive_count as
+numeric(10,4))/total_transaction_count)*100, 2)
+end as inactive_count_percent
+from spar_nord_atm_trans.fact_atm_trans f
+where f.weather_main != ''
+group by f.weather_main
+order by inactive_count_percent desc
+limit 10;
+
+/* Top 10 ATMs with the most number of transactions throughout the year */
+select a.atm_number, a.atm_manufacturer, l.location,
+count(trans_id) as total_transaction_count
+from spar_nord_atm_trans.fact_atm_trans f, spar_nord_atm_trans.dim_atm a, spar_nord_atm_trans.dim_location l
+where f.atm_id = a.atm_id and a.atm_location_id = l.location_id
+group by a.atm_number, a.atm_manufacturer, l.location
+order by total_transaction_count desc
+limit 10;
+
+/* Number of overall ATM transactions going inactive per month for each month */
+select d.year, d.month,
+count(trans_id) as total_transaction_count,
+sum(case when atm_status = 'Inactive' then 1 else 0 end) as inactive_count,
+case when coalesce(inactive_count, 0) = 0 then 0.0000
+else trunc((cast(inactive_count as
+numeric(10,4))/total_transaction_count)*100, 2)
+end as inactive_count_percent
+from spar_nord_atm_trans.fact_atm_trans f inner join spar_nord_atm_trans.dim_date d on f.date_id =
+d.date_id
+group by d.year, d.month
+order by d.year, d.month
+
+/* Top 10 ATMs with the highest total withdrawn amount throughout the year */
+select a.atm_number, a.atm_manufacturer, l.location,
+sum(transaction_amount) as total_transaction_amount
+from spar_nord_atm_trans.fact_atm_trans f, spar_nord_atm_trans.dim_atm a, spar_nord_atm_trans.dim_location l
+where f.atm_id = a.atm_id and a.atm_location_id = l.location_id
+group by a.atm_number, a.atm_manufacturer, l.location
+order by total_transaction_amount desc
+limit 10;
+                                                                       
+/* Number of failed ATM transactions across various card types */
+select ct.card_type,
+count(trans_id) as total_transaction_count,
+sum(case when atm_status = 'Inactive' then 1 else 0 end) as inactive_count,
+case when coalesce(inactive_count, 0) = 0 then 0.0000
+else trunc((cast(inactive_count as
+numeric(10,4))/total_transaction_count)*100, 2)
+end as inactive_count_percent
+from spar_nord_atm_trans.fact_atm_trans f, spar_nord_atm_trans.dim_card_type ct
+where f.card_type_id = ct.card_type_id
+group by ct.card_type
+order by inactive_count_percent desc
+limit 10;
+                                                                       
+/* Number of transactions happening on an ATM on weekdays and on weekends throughout the year. Order this by the ATM_number, ATM_manufacturer, location, weekend_flag and then total_transaction_count */
+select a.atm_number, a.atm_manufacturer, l.location,
+case when d.weekday in ('Saturday','Sunday') then 1 else 0 end as
+weekend_flag,
+count(trans_id) as total_transaction_count
+from spar_nord_atm_trans.fact_atm_trans f, spar_nord_atm_trans.dim_atm a, spar_nord_atm_trans.dim_location l,
+spar_nord_atm_trans.dim_date d
+where f.atm_id = a.atm_id and a.atm_location_id = l.location_id and f.date_id
+= d.date_id
+group by a.atm_number, a.atm_manufacturer, l.location, weekend_flag
+order by a.atm_number, a.atm_manufacturer, l.location, weekend_flag,
+total_transaction_count
+limit 10;
+                                                                       
+/* Most active day in each ATMs from location "Vejgaard" */
+select a.atm_number, a.atm_manufacturer, l.location, d.weekday,
+count(trans_id) as total_transaction_count
+from spar_nord_atm_trans.fact_atm_trans f inner join spar_nord_atm_trans.dim_atm a on f.atm_id =
+a.atm_id
+inner join spar_nord_atm_trans.dim_location l on a.atm_location_id = l.location_id
+inner join spar_nord_atm_trans.dim_date d on f.date_id = d.date_id
+where l.location = 'Vejgaard' and d.weekday in
+( select d.weekday
+from spar_nord_atm_trans.fact_atm_trans f inner join spar_nord_atm_trans.dim_date d
+on f.date_id = d.date_id
+inner join spar_nord_atm_trans.dim_location l on f.weather_loc_id = l.location_id
+where l.location = 'Vejgaard'
+group by d.weekday
+order by count(f.trans_id) desc
+limit 1 )
+group by a.atm_number, a.atm_manufacturer, l.location, d.weekday
+order by total_transaction_count;
